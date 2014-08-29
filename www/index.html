@@ -1,0 +1,775 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=0"/>
+    <title>SSP Checklist</title>
+    <script type="text/javascript" charset="utf-8" src="phonegap.js"></script>
+    <script src="includes/js/jquery-2.1.1.min.js"  type="text/javascript"></script>
+
+    <script src="templates/aba.js"  type="text/javascript"></script>
+    <script src="templates/categoria.js"  type="text/javascript"></script>
+    <script src="templates/infoadicional.js"  type="text/javascript"></script>
+    <script src="templates/perguntasimples.js"  type="text/javascript"></script>
+
+    <link rel="stylesheet" href="includes/mobile/jquery.mobile-1.3.1.css" />    
+    <script src="includes/mobile/jquery.mobile.custom.js"  type="text/javascript"></script>
+
+    <script src="includes/js/jquery.transit.min.js" type="text/javascript"></script>
+    <script src="includes/js/banco_LocalStorage.js" type="text/javascript"></script>
+    <script src="includes/js/sync.js" type="text/javascript"></script>
+    <script src="includes/js/metodos.js" type="text/javascript"></script>
+    <link href="includes/css/stilos.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" charset="utf-8">
+
+        /*PRD*/
+        //var serviceMemberShip = "https://gv360store.com/api/membership/";
+        //var serviceApplic = "https://gv360store.com/api/checklist/";
+
+        /*HOM*/
+        var serviceMemberShip = "https://gv360store.com/hom/api/membership/";
+        var serviceApplic = "https://gv360store.com/hom/api/checklist/";
+
+        /*DEV*/
+        //var serviceMemberShip = "http://localhost:1552/";
+        //var serviceApplic = "http://localhost:6139/"; 
+
+        var versaoAtual = "1.4.3.4";
+        var codAplicacao = 2;
+        var banco;
+        var sync;
+        var CodigoUsuario; var CodigoEmpresa; var CodigoVisitReportAtual; var CodigoLojaSelecionada; var CodigoEmpresaSelecionada; var CodigoRegiaoSelecionada;
+        var RegioesCarregadas = new Object();
+        var LojasCarregadas = new Object();
+        var LojaSelecionada = new Object();
+        var RegiaoSelecionada = new Object();
+        var EmpresasCarregadas;
+        var checkList;
+        var UsuarioLogado;
+        var DEV = false;
+        var OFFl = false;
+        var db;
+//        $.ajax = (function (original) {
+//            var stripProto = /x-wmapp0:\/\//;
+//            return function () {
+//                if (arguments.length > 1) {
+//                    arguments[0] = arguments[0].replace(stripProto, "");
+//                } else if (arguments.length > 0 && arguments[0].url) {
+//                    arguments[0].url = arguments[0].url.replace(stripProto, "");
+//                }
+//                return original.apply(this, arguments);
+//            };
+//        })($.ajax);
+//        $.fx.speeds._default = 1000;
+
+        function onDeviceReady() {
+            try {
+                document.addEventListener("online", VerificaMEnsagensIniciais, false);
+                document.addEventListener("resume", VerificaMEnsagensIniciais, false);
+                VerificaMEnsagensIniciais();
+
+                if (navigator.splashscreen) {
+                    navigator.splashscreen.hide();
+                }
+
+                sync = new Sync();
+                banco = new Banco();
+
+                if (isOFFline() == false)
+                    CarregaDadosOff();
+
+                banco.login(baseok);
+
+            } catch (e) {
+                debug(e.message);
+            }
+        }
+
+        $(document).ready(function () {
+            $('.divLoadingMaior p').text("Loading data...");
+            $('.divLoadingMaior').show();
+            document.addEventListener("deviceready", onDeviceReady, false);
+            Inicia();
+
+            if (DEV) {
+                VerificaMEnsagensIniciais();
+                $('.ui-title').text('DEV TEST');
+
+                sync = new Sync();
+                banco = new Banco();
+
+                if (isOFFline() == false)
+                    CarregaDadosOff();
+
+                banco.login(baseok);
+            }
+        });
+
+        function baseok(user) {
+            if (user != null) {
+                try {
+                    LoginEfetuado(user);
+                } catch (e) {
+                    debug(e.message);
+                }
+            }
+            else {
+                $('.divLoadingMaior p').text("");
+                $('.divLoadingMaior').hide();
+            }
+        }
+
+
+        $(document).on('error', function (event) {
+            var r = jQuery.parseJSON(event.responseText);
+            debug("Message: " + r.Message);
+            debug("StackTrace: " + r.StackTrace);
+            debug("ExceptionType: " + r.ExceptionType);
+        });
+
+        function VerificaMEnsagensIniciais() {
+            jQuery.support.cors = true;
+            $.ajax({
+                url: serviceApplic + "mensagem",
+                type: 'GET',
+                dataType: 'json',
+                success: function (data) {
+                    if (data == null) {
+
+                    }
+                    else {
+                        for (var i = 0; i < data.length; i++) {
+                            if (data[i].Versao == null || data[i].Versao == '' || data[i].Versao == versaoAtual)
+                                alerta(data[i].Mensagem, "WARNING");
+                        }
+                    }
+                },
+                error: function (a, e, d) { }
+            });
+        }
+
+        function Inicia() {
+            //BIND DE CHANGE DE COMBOS
+            $('#cmbEmpresas').change(function () {
+                $('#divCmbEmpresas div.ui-select .ui-btn-text span').text($('#cmbEmpresas').children()[$('#cmbEmpresas')[0].selectedIndex].text);
+                CodigoEmpresaSelecionada = EmpresasCarregadas[$('#cmbEmpresas')[0].selectedIndex].Id;
+                ListarRegioes(EmpresasCarregadas[$('#cmbEmpresas')[0].selectedIndex].Id);
+            });
+            $('#cmbRegioes').change(function () {
+                $('#divCmbRegioes div.ui-select .ui-btn-text span').text($('#cmbRegioes').children()[$('#cmbRegioes')[0].selectedIndex].text);
+                RegiaoSelecionada = RegioesCarregadas[$('#cmbRegioes')[0].selectedIndex];
+
+                //Combo selecionou mostrar todas
+                if (RegiaoSelecionada == undefined)
+                    CodigoRegiaoSelecionada = 0;
+                else
+                    CodigoRegiaoSelecionada = RegiaoSelecionada.Id;
+
+                if ($('#cmbEmpresas')[0].selectedIndex == -1)
+                    ListarLojas(CodigoEmpresa);
+                else
+                    ListarLojas(EmpresasCarregadas[$('#cmbEmpresas')[0].selectedIndex].Id);
+            });
+            $('#cmbLojas').change(function () {
+                $('#divCmbLojas div.ui-select .ui-btn-text span').text($('#cmbLojas').children()[$('#cmbLojas')[0].selectedIndex].text);
+                LojaSelecionada = LocalizarLoja($('#cmbLojas')[0].value);
+                CodigoLojaSelecionada = LojaSelecionada.Id;
+            });
+        }
+
+        function LocalizarLoja(_id) {
+            for (var i = 0; i < LojasCarregadas.length; i++) {
+                if (LojasCarregadas[i].Id == _id) {
+                    return LojasCarregadas[i];
+                    break;
+                }
+            }
+        }
+
+        function EfetuarLogin() {
+            $('.divLoading').show();
+            $('.msgLogin').html('');
+            $('.msgLogin').hide();
+
+            var user = $('#txt-email').val();
+            var pass = $('#txt-password').val();
+
+            if (pass == "" || user == "") {
+                $('.msgLogin').html('Email and password required!');
+                $('.msgLogin').show();
+                $('.divLoading').hide();
+                return;
+            }
+
+            $('#password').val('');
+
+            jQuery.support.cors = true;
+            $.ajax({
+                url: serviceMemberShip + "usuario/AutenticarUsuario",
+                type: 'GET',
+                data: { email: user, senha: pass, aplicacao: codAplicacao },
+                dataType: 'json',
+                success: function (data) {
+                    if (data == null) {
+                        $('.msgLogin').html('Invalid credentials!');
+                        $('.msgLogin').show();
+                    }
+                    else {
+                        try {
+                            banco.SalvaLogin(data);
+                            LoginEfetuado(data);
+                        } catch (e) {
+                            alerta(e.message);
+                        }
+                    }
+                    $('.divLoading').hide();
+                },
+                error: function (a, e, d) {
+                    $('.msgLogin').html('System unavailable');
+                    $('.msgLogin').show();
+                    $('.divLoading').hide();
+                    debug("Response: " + a.responseText);
+                    debug("Status: " + a.status);
+                    debug("Message: " + e);
+                    debug("d: " + d);
+                }
+            });
+
+        }
+
+        function CarregaDadosOff() {
+            jQuery.support.cors = true;
+            $.ajax({
+                url: serviceMemberShip + "empresa/listar",
+                type: 'GET',
+                dataType: 'json',
+                success: function (data) {
+                    if (data == null) {
+                        alerta('Error 9120.1');
+                    }
+                    else {
+                        banco.SalvarEmpresas(JSON.stringify(data));
+                    }
+                },
+                error: function (a, e, d) {
+                    alerta('Error 9121.1');
+                }
+            });
+            $.ajax({
+                url: serviceMemberShip + "loja/listarporempresa/null",
+                type: 'GET',
+                dataType: 'json',
+                success: function (data) {
+                    if (data == null) {
+                        alerta('Error 9120.2');
+                    }
+                    else {
+                        banco.SalvarLojas(JSON.stringify(data));
+                    }
+                },
+                error: function (a, e, d) {
+                    alerta('Error 9121.2');
+                }
+            });
+            $.ajax({
+                url: serviceMemberShip + "regiao/listar",
+                type: 'GET',
+                dataType: 'json',
+                success: function (data) {
+                    if (data == null) {
+                        alerta('Error 9120.3');
+                    }
+                    else {
+                        banco.SalvarRegioes(JSON.stringify(data));
+                    }
+                },
+                error: function (a, e, d) {
+                    alerta('Error 9121.3');
+                }
+            });
+            $.ajax({
+                url: serviceApplic + "checklist/listaraba?cultura=en-us",
+                type: 'GET',
+                dataType: 'json',
+                success: function (data) {
+                    if (data == null) {
+                        alerta('Error 9120.4');
+                    }
+                    else {
+                        banco.SalvarPerguntas(JSON.stringify(data));
+                    }
+                },
+                error: function (a, e, d) {
+                    alerta('Error 9121.4');
+                }
+            });
+        }
+
+        function LoginEfetuado(usr) {
+            try {
+                UsuarioLogado = usr;
+                $('#pUsrLogado').text(usr.Nome + ' - ' + usr.Perfil.Nome);
+                CodigoUsuario = usr.Id;
+
+                $('#login').transition({ opacity: 0 });
+                MostraPagina('home');
+                verificaSincronizacao();
+
+                ListarEmpresas();
+
+                if (usr.Empresa == null || VerificaPerfilUsuario()) {
+                    CodigoEmpresa = 0;
+                }
+                else {
+                    CodigoEmpresa = usr.Empresa.Id;
+                    ListarLojas(CodigoEmpresa);
+                }
+
+                $('.divLoadingMaior p').text("");
+                $('.divLoadingMaior').hide();
+            } catch (e) {
+                debug(e.message)
+            }
+        }
+
+        function VerificaPerfilUsuario() {
+            if (UsuarioLogado.Perfil.Sigla == "RSM" || UsuarioLogado.Perfil.Sigla == "CMT" || UsuarioLogado.Perfil.Sigla == "CAD" || UsuarioLogado.Perfil.Sigla == "CCO")
+                return true;
+            else
+                return false;
+        }
+
+        function ListarEmpresas() {
+            if (isOFFline()) {
+                banco.ObterEmpresas(CarregarEmpresas);
+            }
+            else {
+                jQuery.support.cors = true;
+                $.ajax({
+                    url: serviceMemberShip + "empresa/listar",
+                    type: 'GET',
+                    dataType: 'json',
+                    success: function (data) {
+                        if (data == null) {
+                            alerta('Error 9124');
+                        }
+                        else {
+                            CarregarEmpresas(data);
+                        }
+                    },
+                    error: function (a, e, d) {
+                        alerta('Error 9125');
+                    }
+                });
+            }
+        }
+        function CarregarEmpresas(dados) {
+            var select = $('#cmbEmpresas');
+            if (select.prop) {
+                var options = select.prop('options');
+            }
+            else {
+                var options = select.attr('options');
+            }
+            $('option', select).remove();
+            $.each(dados, function (i, val) {
+                options[options.length] = new Option(val.Nome, val.Id);
+            });
+            EmpresasCarregadas = dados;
+            $('#divCmbEmpresas div.ui-select .ui-btn-text span').text('select chain');
+            $('#cmbEmpresas')[0].selectedIndex = -1;
+
+            if (UsuarioLogado.Empresa == null || VerificaPerfilUsuario()) {
+                $('#divLoadingLojas').hide();
+                $('#divCmbEmpresas').show();
+            }
+        }
+        function ListarRegioes(idEmpresa) {
+            $('#divLoadingLojas').show();
+            $('#divCmbLojas').hide();
+            $('#divCmbRegioes').hide();
+
+            if (isOFFline()) {
+                banco.ObterRegioes(CarregarRegioes, idEmpresa);
+            }
+            else {
+                var targeto = "";
+                if (idEmpresa == 0)
+                    targeto = serviceMemberShip + "regiao/listar"
+                else
+                    targeto = serviceMemberShip + "regiao/listarporempresa/" + idEmpresa
+
+                jQuery.support.cors = true;
+                $.ajax({
+                    url: targeto,
+                    type: 'GET',
+                    dataType: 'json',
+                    success: function (data) {
+                        if (data == null) {
+                            alerta('Error 9142');
+                        }
+                        else {
+                            CarregarRegioes(data);
+                        }
+                    },
+                    error: function (a, e, d) {
+                        alerta('Error 9143');
+                    }
+                });
+            }
+        }
+        function CarregarRegioes(_regioes) {
+            var select = $('#cmbRegioes');
+            if (select.prop) {
+                var options = select.prop('options');
+            }
+            else {
+                var options = select.attr('options');
+            }
+            $('option', select).remove();
+
+            $.each(_regioes, function (i, val) {
+                options[options.length] = new Option(val.Nome, val.Id);
+            });
+
+            options[options.length] = new Option('All Regions', -1);
+
+            RegioesCarregadas = _regioes;
+
+            $('#divCmbRegioes div.ui-select .ui-btn-text span').text('select region');
+            $('#cmbRegioes')[0].selectedIndex = -1;
+            $('#divLoadingLojas').hide();
+            $('#divCmbRegioes').show();
+
+            CodigoRegiaoSelecionada = 0;
+            RegiaoSelecionada = new Object();
+
+            ListarLojas(CodigoEmpresaSelecionada);
+        }
+        function ListarLojas(idEmpresa) {
+            $('#divLoadingLojas').show();
+            $('#divCmbLojas').hide();
+
+            if (isOFFline()) {
+                banco.ObterLojas(CarregarLojas, idEmpresa);
+            }
+            else {
+                var targeto = "";
+                if (idEmpresa == 0)
+                    targeto = serviceMemberShip + "loja/listarporempresa/null"
+                else
+                    targeto = serviceMemberShip + "loja/listarporempresa/" + idEmpresa
+
+                jQuery.support.cors = true;
+                $.ajax({
+                    url: targeto,
+                    type: 'GET',
+                    dataType: 'json',
+                    success: function (data) {
+                        if (data == null) {
+                            alerta('Error 9126');
+                        }
+                        else {
+                            CarregarLojas(data);
+                        }
+                    },
+                    error: function (a, e, d) {
+                        alerta('Error 9127');
+                    }
+                });
+            }
+        }
+        function CarregarLojas(lojas) {
+            var select = $('#cmbLojas');
+            if (select.prop) {
+                var options = select.prop('options');
+            }
+            else {
+                var options = select.attr('options');
+            }
+            $('option', select).remove();
+
+            if (CodigoRegiaoSelecionada == undefined || CodigoRegiaoSelecionada == null || CodigoRegiaoSelecionada == 0) {
+                $.each(lojas, function (i, val) {
+                    options[options.length] = new Option(val.Nome, val.Id);
+                });
+            }
+            else {
+                $.each(lojas, function (i, val) {
+                    if (val.IdRegiao == CodigoRegiaoSelecionada)
+                        options[options.length] = new Option(val.Nome, val.Id);
+                });
+            }
+
+            LojasCarregadas = lojas;
+            $('#divCmbLojas div.ui-select .ui-btn-text span').text('select store');
+            $('#cmbLojas')[0].selectedIndex = -1;
+            $('#divLoadingLojas').hide();
+            $('#divCmbLojas').show();
+        }
+
+        function ListarChecklist() {
+            if ($('#cmbLojas')[0].selectedIndex == -1) {
+                alerta('Select store');
+                return;
+            }
+
+            $('.divLoading').show();
+            $('.pgCategoria').remove();
+            if (isOFFline()) {
+                try {
+                    banco.ObterRespostas(CodigoLojaSelecionada, CarregarChecklist);
+                } catch (e) {
+                debug("ListarChecklist() -> " + e.message);
+                }
+                
+            }
+        else {
+                jQuery.support.cors = true;
+                $.ajax({
+                    url: serviceApplic + "checklist/obter",
+                    data: { IdLoja: LojaSelecionada.Id, IdUsuario: CodigoUsuario },
+                    type: 'GET',
+                    dataType: 'json',
+                    success: function (data) {
+                        if (data == null) {
+                            alerta('Error 9128');
+                        }
+                        else {
+                            CarregarChecklist(data);
+                        }
+                    },
+                    error: function (a, e, d) {
+                        alerta('Error 9129');
+                    }
+                });
+            }
+        }
+        function CarregarChecklist(dados) {
+            if (dados == null) {
+                //null é desconectado da net
+                checkList = new Object()
+                checkList.Id = 0;
+                checkList.Loja = LojaSelecionada;
+                checkList.IdUsuario = CodigoUsuario;
+                checkList.ChecklistResposta = new Array();
+            }
+            else
+                checkList = dados;
+
+            ListarPerguntas();
+        }
+
+
+        function ListarPerguntas() {
+            $('.divLoading').show();
+            $('.pgCategoria').remove();
+            if (isOFFline())
+            {
+                banco.ObterPerguntas(CarregarPerguntas);
+            }
+            else {
+                jQuery.support.cors = true;
+                $.ajax({
+                    url: serviceApplic + "checklist/listaraba?cultura=en-us",
+                    type: 'GET',
+                    dataType: 'json',
+                    success: function (data) {
+                        if (data == null) {
+                            alerta('Error 9117');
+                        }
+                        else {
+                            CarregarPerguntas(data);
+                        }
+                    },
+                    error: function (a, e, d) {
+                        alerta('Error 9116');
+                    }
+                });
+            }
+        }
+
+
+        function Salva() {
+            $('.divLoadingMaior p').text("Saving data");
+            $('.divLoadingMaior').show();
+
+            var CheckResposta = new Object();
+            CheckResposta.Id = CodigoCheckListAtual;
+            CheckResposta.IdUsuario = CodigoUsuario;
+            CheckResposta.Loja = LojaSelecionada;
+
+            if (checkList.Id > 0)
+                CheckResposta.Id = checkList.Id;
+            else
+                CheckResposta.Id = 0;
+
+
+            CheckResposta.ChecklistResposta = new Array();
+
+            $('.divPergunta').each(function (i, val) {
+                var IDPerg = $(val).attr('cod');
+                var resposta = new Object();
+
+                resposta.IdChecklist = CodigoCheckListAtual;
+                resposta.IdItem = IDPerg;
+                resposta.PresentInStore = $(val).find('[tipo="Yes"]').hasClass('ui-btn-active');
+                resposta.Visible = $(val).find('[tipo="Visible"]').hasClass('ui-btn-active');
+                resposta.Window = $(val).find('[tipo="Win"]').hasClass('ui-btn-active');
+                resposta.Entrance = $(val).find('[tipo="Ent"]').hasClass('ui-btn-active');
+                resposta.EyeTestRoom = $(val).find('[tipo="Eye"]').hasClass('ui-btn-active');
+                resposta.Displays = $(val).find('[tipo="Dis"]').hasClass('ui-btn-active');
+                resposta.SalesDesk = $(val).find('[tipo="Sal"]').hasClass('ui-btn-active');
+                resposta.CashDesk = $(val).find('[tipo="Cas"]').hasClass('ui-btn-active');
+                resposta.Exit = $(val).find('[tipo="Exi"]').hasClass('ui-btn-active');
+                resposta.Comentario = $(val).find('[p="' + IDPerg + 'Com"]').val();
+
+                if (checkList.ChecklistResposta.length > 0) {
+                    resposta.Id = checkList.ChecklistResposta[i].Id;
+                }
+
+                CheckResposta.ChecklistResposta.push(resposta);
+            });
+
+            if (isOFFline()) {
+                banco.SalvarRespostas(CheckResposta, LojaSelecionada.Id, SalvoLocal);
+            }
+            else {
+                jQuery.support.cors = true;
+                $.ajax({
+                    url: serviceApplic + "checklist/salvar",
+                    type: 'POST',
+                    dataType: 'json',
+                    data: "=" + JSON.stringify(CheckResposta).replace(/[\u0026]+/g, ""),
+                    success: function (data) {
+                        if (data == null) {
+                            alerta('Error 9130.\nTry save again.');
+                        }
+                        else {
+                            alerta('Data Saved!');
+                            MostraHome();
+                        }
+                    },
+                    error: function (a, e, d) {
+                        banco.SalvarRespostas(JSON.stringify(CheckResposta).replace(/[\u0026]+/g, ""), LojaSelecionada.Id, SalvoLocal);
+                        alerta('Unable to send.\nChecklist saved in the local database, try sending again.');
+                    }
+                });
+            }
+        }
+
+        function SalvoLocal(sucesso) {
+            $('.divLoadingMaior').hide();
+            $('.divLoadingMaior p').text("");
+            if (sucesso) {
+                MostraHome();
+                alerta('Data Saved!');
+            }
+            else
+                alerta('Error 9131');
+        }
+
+        function Sincronizar() {
+            if (isOFFline())
+                alerta("Internet connection necessary to synchronize!");
+            else
+                sync.sincronizar();
+        }
+
+
+        function goAjaxTest() {
+            var url = "https://getVesselTracker.com/testajax.php";
+            jQuery.support.cors = true;
+            $.ajax({
+                url: url,
+                datatype: 'text',
+                beforeSend: function() {
+                },
+
+                success : function(data) {
+                    alert(data)
+                },
+
+                error: function (request, status, error) {
+                    alert("request:"+request);
+                    alert("status:"+status);
+                    alert("error:"+error);
+                }
+            });
+        }
+
+    </script>
+</head>
+<!--<div style="height: 21px;width: 101%;background-color: #000000;position: fixed;z-index: 1000;margin: 0;padding: 0;left: -1px;top: -1px;" ></div>-->
+<body class="ui-mobile-viewport ui-overlay-d" >
+    <div class="divLoading"><img src="includes/img/loading.gif" /></div>
+    <div style="top: 20px; left: 0px; margin: 0px; width: 100%; height: 100%; position: fixed; z-index: 1100; text-align: center; padding-top: 50px; background-color: rgb(221, 221, 221); display:none;" class="divLoadingMaior"><b><p></p></b><img src="includes/img/loading.gif"></div>
+    <div class="debugs" style="position:absolute;z-index:2000;margin-left: 65px;" ></div>
+    <div class="ui-page ui-body-d ui-page-active" id="login">
+        <div class="ui-header ui-bar-c">
+        <div class="barPreta" style="height: 21px;width: 101%;background-color: #000000;position: fixed;z-index: 1010;margin: 0;padding: 0;left: -1px;top: -1px;" ></div>
+        <h3 class="ui-title">SSP CHECKLIST</h3></div>
+        <div class="ui-content">
+            <div style="" ><img style="width: 100%;" src="includes/img/GrandVision.jpg"></div>
+            <h4>please provide your credentials to connect</h4>
+            <div class="ui-field-contain ui-body ui-br"><label for="txt-email" class="ui-input-text">Email</label><div class="ui-input-text ui-shadow-inset ui-corner-all ui-btn-shadow ui-body-d"><input type="email" value="" id="txt-email" name="" class="ui-input-text ui-body-d"></div>
+            </div>
+            <div class="ui-field-contain ui-body ui-br"><label for="txt-password" class="ui-input-text">Password</label><div class="ui-input-text ui-shadow-inset ui-corner-all ui-btn-shadow ui-body-d"><input type="password" value="" id="txt-password" name="" class="ui-input-text ui-body-d"></div>
+            </div>
+            <div style="height: 30px; width:250px; margin:auto; text-align:center;">
+                <p style="color: Red; display: none; margin: 0; line-height: 30px;" class="msgLogin"></p>       
+            </div>
+            <a class="btn-centro ui-btn ui-btn-up-b ui-shadow ui-btn-corner-all ui-btn-icon-right" onclick="EfetuarLogin()" id="A1"><span class="ui-btn-inner"><span class="ui-btn-text">sign in</span><span class="ui-icon ui-icon-check ui-icon-shadow">&nbsp;</span></span></a>
+
+                        <input type="button" onclick="goAjaxTest()" value="Call Ajax Test">
+        </div>
+    </div>
+    <div class="ui-page ui-body-d" id="home" >
+        <div class="ui-header ui-bar-c">
+        <div class="barPreta" style="height: 21px;width: 101%;background-color: #000000;position: fixed;z-index: 1010;margin: 0;padding: 0;left: -1px;top: -1px;" ></div>
+        <h3 class="ui-title">SSP CHECKLIST</h3><div onclick="AtualizaBaseLocal()" class="divbtAtuBase"><img src="includes/img/ico-AtuBase.png" /></div></div>
+        <div class="ui-content">
+            <div style="text-align:center;">
+                <p id="pUsrLogado">[usr] - [prf]</p>
+            </div>
+            <div class="ui-collapsible-set ui-corner-all">
+                <div style="display:none;" class="divSincron ui-collapsible ui-collapsible-inset ui-collapsible-themed-content ui-first-child ui-collapsible-collapsed">
+                    <h3 class="ui-collapsible-heading ui-collapsible-heading-collapsed">
+                    <a class="ui-collapsible-heading-toggle ui-btn ui-btn-icon-left ui-btn-up-c"><span class="ui-btn-inner"><span class="ui-btn-text">Pendent data</span></span></a></h3>
+                    <div class="ui-collapsible-content ui-body-e">
+                    <div class="msgSincron" style="text-align:center;margin-bottom:5px;" ></div>
+                    <a class="btn-centro ui-btn ui-btn-up-b ui-shadow ui-btn-corner-all ui-btn-icon-right" onclick="Sincronizar()"><span class="ui-btn-inner"><span class="ui-btn-text">Synchronize</span><span class="ui-icon ui-icon-refresh ui-icon-shadow">&nbsp;</span></span></a>
+                    </div>
+                </div>
+                <div class="ui-collapsible ui-collapsible-inset ui-collapsible-themed-content ui-last-child">
+                    <h3 class="ui-collapsible-heading"><a class="ui-collapsible-heading-toggle ui-btn ui-btn-icon-left ui-btn-up-c"><span class="ui-btn-inner"><span class="ui-btn-text">New checklist<span class="ui-collapsible-heading-status"> click to collapse contents</span></span></span></a></h3>
+                    <div class="ui-collapsible-content ui-body-e">                   
+                    <div style="display:none;" id="divCmbEmpresas">
+                        <div id="div3" style="">
+                        <div class="ui-field-contain ui-body ui-br"><label for="cmbEmpresas" class="ui-select">Select chain</label><div class="ui-select"><div class="ui-btn ui-shadow ui-btn-corner-all ui-btn-icon-right ui-btn-up-c"><span class="ui-btn-inner"><span class="ui-btn-text"><span>select chain</span></span><span class="ui-icon ui-icon-arrow-d ui-icon-shadow">&nbsp;</span></span>
+                        <select id="cmbEmpresas"></select></div></div></div>
+                        </div>
+                    </div>
+                    <div style="display:none;" id="divCmbRegioes">
+                        <div id="div4" style="">
+                        <div class="ui-field-contain ui-body ui-br"><label for="cmbRegioes" class="ui-select">Select region</label><div class="ui-select"><div class="ui-btn ui-shadow ui-btn-corner-all ui-btn-icon-right ui-btn-up-c"><span class="ui-btn-inner"><span class="ui-btn-text"><span>select region</span></span><span class="ui-icon ui-icon-arrow-d ui-icon-shadow">&nbsp;</span></span>
+                        <select id="cmbRegioes"></select></div></div></div>
+                        </div>
+                    </div>
+                    <div style="display:none;" id="divCmbLojas">
+                        <div id="div1" style="">
+                        <div class="ui-field-contain ui-body ui-br"><label for="cmbLojas" class="ui-select">Select store</label><div class="ui-select"><div class="ui-btn ui-shadow ui-btn-corner-all ui-btn-icon-right ui-btn-up-c"><span class="ui-btn-inner"><span class="ui-btn-text"><span>select store</span></span><span class="ui-icon ui-icon-arrow-d ui-icon-shadow">&nbsp;</span></span>
+                        <select id="cmbLojas"></select></div></div></div>
+                        <a class="btn-centro ui-btn ui-shadow ui-btn-corner-all ui-btn-icon-right ui-btn-up-b" onclick="ListarChecklist()"><span class="ui-btn-inner"><span class="ui-btn-text"> continue </span><span class="ui-icon ui-icon-arrow-r ui-icon-shadow">&nbsp;</span></span></a>
+                        </div>
+                    </div>
+
+                    <div style="width:100%; text-align:center;" id="divLoadingLojas" >
+                        <br /><img src="includes/img/loading.gif" /><br />loading stores
+                    </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+ </body>
+</html>

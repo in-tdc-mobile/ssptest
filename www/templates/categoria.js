@@ -1,0 +1,1 @@
+﻿var templateCategoria = '<div class="tituloCategoria">$categoria$﻿</div><br />$$perguntas$$';
